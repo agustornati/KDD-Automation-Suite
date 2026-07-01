@@ -1,0 +1,8 @@
+# KDD Automation Suite - dependencias del Sprint 1
+streamlit>=1.30
+pandas>=2.0
+openpyxl>=3.1
+pdfplumber>=0.11
+
+# Testing
+pytest>=8.0

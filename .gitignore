@@ -1,0 +1,44 @@
+# ---------------------------------------------------------------------------
+# KDD Automation Suite - .gitignore
+# ---------------------------------------------------------------------------
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+ENV/
+
+# Datos de trabajo (nunca versionar archivos de clientes)
+data/uploads/*
+data/outputs/*
+data/temp/*
+!data/uploads/.gitkeep
+!data/outputs/.gitkeep
+!data/temp/.gitkeep
+
+# Logs
+logs/*
+!logs/.gitkeep
+
+# Streamlit
+.streamlit/secrets.toml
+
+# IDE / SO
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
