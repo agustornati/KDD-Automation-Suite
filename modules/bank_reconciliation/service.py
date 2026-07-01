@@ -186,7 +186,7 @@ def reconcile(
         conta_match=conta_match, banco_match=banco_match,
         grupos=grupos, conta_anul=conta_anul, banco_anul=banco_anul,
         period=period,
-        saldo_banco=saldo_banco or 0.0,
+        saldo_banco=saldo_banco,
         saldo_contable=float(saldo_contable),
     )
     stats = _build_stats(data)

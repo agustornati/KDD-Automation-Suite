@@ -5,6 +5,7 @@ API pública:
       :class:`ReconciliationResult` (sin generar archivos).
 """
 
+from .exporters import ExcelExporter
 from .models import (
     PeriodInfo,
     ReconciliationData,
@@ -16,6 +17,7 @@ from .validators import ValidationError
 
 __all__ = [
     "reconcile",
+    "ExcelExporter",
     "ReconciliationResult",
     "ReconciliationStats",
     "ReconciliationData",

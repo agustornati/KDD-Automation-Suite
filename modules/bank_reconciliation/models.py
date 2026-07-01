@@ -154,7 +154,7 @@ class ReconciliationData:
     conta_anul: list[tuple[int, int]]
     banco_anul: list[tuple[int, int]]
     period: PeriodInfo
-    saldo_banco: float
+    saldo_banco: Optional[float]   # None si no se pudo autodetectar del PDF
     saldo_contable: float
 
 
