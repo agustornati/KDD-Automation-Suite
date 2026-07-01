@@ -11,7 +11,7 @@ import logging
 # Identidad de la aplicación (usada por la interfaz).
 APP_NAME: str = "KDD Automation Suite"
 APP_TAGLINE: str = "Powered by KDD Consulting"
-APP_VERSION: str = "0.1.0"
+APP_VERSION: str = "0.1.1"
 
 # Logging.
 LOG_LEVEL: int = logging.INFO
