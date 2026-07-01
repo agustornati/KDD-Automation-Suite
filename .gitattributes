@@ -1,0 +1,9 @@
+# Normalización de fin de línea: LF en el repositorio.
+* text=auto eol=lf
+
+# Binarios (sin conversión).
+*.xlsx binary
+*.xlsm binary
+*.pdf binary
+*.png binary
+*.jpg binary
