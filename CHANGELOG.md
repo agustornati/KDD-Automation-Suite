@@ -7,8 +7,33 @@ El formato sigue, de manera simplificada,
 
 ## [No publicado]
 
-### En desarrollo
-- Sprint 1: primer módulo de conciliación bancaria (ver más abajo v0.1.0).
+## [0.1.1] — Sprint 1.5 (mejoras de UX)
+
+Mejoras de experiencia de usuario para uso diario por personal administrativo.
+**Sin cambios en el motor, el servicio ni las reglas de negocio.**
+
+### Agregado
+- Encabezado con logo opcional, número de versión y fecha/hora de la última
+  ejecución.
+- Layout organizado en secciones (Nueva Conciliación, Resultado, Descarga, Log
+  de ejecución).
+- Cargas de archivo más grandes y con borde visible, y resumen del archivo
+  cargado (nombre, tamaño y estado).
+- Validación de campos obligatorios antes de ejecutar, con un mensaje claro que
+  indica exactamente qué falta.
+- Progreso por etapas durante el proceso (`st.status`).
+- Estadísticas presentadas como tarjetas con iconos y mensaje de éxito con
+  tiempo de ejecución, registros procesados y diferencias.
+- Sección de descarga independiente con cantidad de archivos y tamaño total.
+- Log de ejecución con los mensajes importantes del proceso.
+- La app recuerda el último período y saldo contable usados (`session_state`).
+- Helpers de formato `format_ars` (formato argentino) y `human_size` en
+  `shared/formatting.py`.
+- Smoke tests de la interfaz con Streamlit `AppTest`.
+
+### Cambiado
+- Los errores técnicos ya no se muestran al usuario: se traducen a mensajes
+  amigables y el detalle completo queda registrado únicamente en `logs/`.
 
 ## [0.1.0] — Sprint 1
 

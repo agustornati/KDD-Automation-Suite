@@ -51,6 +51,13 @@ Se abre la aplicación en el navegador. Para la conciliación bancaria:
 5. Presioná **Conciliar**.
 6. Revisá las estadísticas y **descargá los resultados** (ZIP con 3 Excel).
 
+La interfaz valida los campos obligatorios antes de ejecutar, muestra el
+progreso por etapas, presenta las métricas como tarjetas, incluye un log de
+ejecución y recuerda el último período y saldo usados. Los errores se muestran
+como mensajes claros; el detalle técnico queda registrado en `logs/`.
+
+> Novedades de cada versión en [`CHANGELOG.md`](CHANGELOG.md).
+
 ## Estructura del proyecto
 
 ```
