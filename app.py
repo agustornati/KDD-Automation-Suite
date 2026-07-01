@@ -69,8 +69,8 @@ def _friendly_error(exc: Exception) -> str:
         return ("No se pudo leer el PDF seleccionado. "
                 "Verificá que sea un extracto bancario válido.")
     if "openpyxl" in origen or "xl" in nombre or "excel" in nombre:
-        return ("El archivo SAP no tiene el formato esperado. "
-                "Verificá que sea el Excel exportado de SAP.")
+        return ("El archivo contable no tiene el formato esperado. "
+                "Verificá que sea el Excel del libro contable.")
     return ("Ocurrió un problema al procesar la conciliación. "
             "Revisá los archivos e intentá nuevamente.")
 
@@ -83,7 +83,7 @@ def _missing_fields(periodo: str, bank_file, sap_file, saldo) -> list[str]:
     if bank_file is None:
         faltantes.append("el **extracto bancario** (PDF)")
     if sap_file is None:
-        faltantes.append("el **libro SAP** (Excel)")
+        faltantes.append("los **libros contables** (Excel)")
     if saldo is None:
         faltantes.append("el **saldo contable**")
     return faltantes
@@ -101,7 +101,7 @@ def _process(bank_file, sap_file, saldo: float, periodo: str):
         bank_path = _save_upload(bank_file, paths.UPLOADS_DIR / bank_file.name)
         sap_path = _save_upload(sap_file, paths.UPLOADS_DIR / sap_file.name)
 
-        st.write("📄 Leyendo extracto, procesando SAP y ejecutando conciliación...")
+        st.write("📄 Leyendo extracto, procesando contabilidad y ejecutando conciliación...")
         result = reconcile(bank_path, sap_path, saldo, periodo)
 
         st.write("📦 Generando resultados (Excel + ZIP)...")
@@ -126,7 +126,7 @@ def _build_log(result: ReconciliationResult, bank_name: str, sap_name: str,
     s = result.stats
     msgs = [
         f"Archivos recibidos: {bank_name} · {sap_name}",
-        f"Banco: {s.movimientos_banco} movimientos · SAP: {s.movimientos_sap} movimientos",
+        f"Banco: {s.movimientos_banco} movimientos · Contabilidad: {s.movimientos_sap} movimientos",
         f"Conciliados: {s.sap_conciliados} · Pendientes: {s.sap_pendientes} · "
         f"Por grupo: {s.conciliados_por_suma}",
         f"Diferencia de saldos: {format_ars(s.diferencia)}",
@@ -181,9 +181,9 @@ def _render_new_reconciliation():
     )
     _render_file_summary(bank_file)
 
-    st.markdown("**Libro SAP (Excel)** — arrastre el archivo aquí o haga clic para seleccionarlo")
+    st.markdown("**Libros Contables (Excel)** — arrastre el archivo aquí o haga clic para seleccionarlo")
     sap_file = st.file_uploader(
-        "Libro SAP (Excel)", type=["xlsx", "xlsm"],
+        "Libros Contables (Excel)", type=["xlsx", "xlsm"],
         label_visibility="collapsed", key="sap_upload",
     )
     _render_file_summary(sap_file)
@@ -202,7 +202,7 @@ def _render_results(result: ReconciliationResult, elapsed: float) -> None:
 
     fila1 = st.columns(3)
     fila1[0].metric("🏦 Movimientos Banco", s.movimientos_banco)
-    fila1[1].metric("📊 Movimientos SAP", s.movimientos_sap)
+    fila1[1].metric("📊 Movimientos Contables", s.movimientos_sap)
     fila1[2].metric("✅ Conciliados", s.sap_conciliados)
     fila2 = st.columns(3)
     fila2[0].metric("⏳ Pendientes", s.sap_pendientes)
