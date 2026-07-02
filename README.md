@@ -1,6 +1,6 @@
-# KDD Automation Suite
+# NAT Automation Suite
 
-Plataforma de automatización del estudio contable **KDD Consulting**.
+Plataforma de automatización del estudio contable **NAT Consulting**.
 
 Un único lugar desde donde ejecutar todas las automatizaciones del estudio. El
 primer módulo es la **conciliación bancaria**; la plataforma está diseñada para
@@ -24,8 +24,8 @@ reutilizables y con calidad de software empresarial.
 ## Instalación
 
 ```bash
-git clone https://github.com/agustornati/KDD-Automation-Suite.git
-cd KDD-Automation-Suite
+git clone https://github.com/agustornati/NAT-Automation-Suite.git
+cd NAT-Automation-Suite
 
 python -m venv .venv
 # Windows
@@ -61,7 +61,7 @@ como mensajes claros; el detalle técnico queda registrado en `logs/`.
 ## Estructura del proyecto
 
 ```
-KDD-Automation-Suite/
+NAT-Automation-Suite/
 ├── app.py                  # Interfaz Streamlit (sin lógica de negocio)
 ├── config/                 # Configuración (paths.py, settings.py)
 ├── modules/                # Automatizaciones (una por carpeta)

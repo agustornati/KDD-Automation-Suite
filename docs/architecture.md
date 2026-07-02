@@ -1,4 +1,4 @@
-# Arquitectura — KDD Automation Suite
+# Arquitectura — NAT Automation Suite
 
 ## Visión general
 
@@ -31,7 +31,7 @@ cada proceso no depende del formato de salida**.
 ## Estructura de carpetas
 
 ```
-KDD-Automation-Suite/
+NAT-Automation-Suite/
 ├── app.py                  # Interfaz Streamlit (sin lógica de negocio)
 ├── config/
 │   ├── paths.py            # Rutas del proyecto

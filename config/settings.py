@@ -9,13 +9,13 @@ from __future__ import annotations
 import logging
 
 # Identidad de la aplicación (usada por la interfaz).
-APP_NAME: str = "KDD Automation Suite"
-APP_TAGLINE: str = "Powered by KDD Consulting"
-APP_VERSION: str = "0.1.1"
+APP_NAME: str = "NAT Automation Suite"
+APP_TAGLINE: str = "Powered by NAT Consulting"
+APP_VERSION: str = "0.1.2"
 
 # Logging.
 LOG_LEVEL: int = logging.INFO
-LOG_FILE_NAME: str = "kdd_automation.log"
+LOG_FILE_NAME: str = "nat_automation.log"
 
 # Módulo de conciliación bancaria.
 BANK_STATEMENT_EXTENSIONS: tuple[str, ...] = (".pdf",)

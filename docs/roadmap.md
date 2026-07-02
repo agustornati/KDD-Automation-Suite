@@ -1,4 +1,4 @@
-# Roadmap — KDD Automation Suite
+# Roadmap — NAT Automation Suite
 
 El producto crece **una automatización a la vez**, cada una como módulo
 independiente dentro de `modules/`. Las versiones son orientativas y se ajustan

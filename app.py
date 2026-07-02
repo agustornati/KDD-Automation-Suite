@@ -1,4 +1,4 @@
-"""KDD Automation Suite — interfaz web (Streamlit).
+"""NAT Automation Suite — interfaz web (Streamlit).
 
 Punto de entrada de la plataforma. Esta capa solo se ocupa de la experiencia de
 usuario: captura las entradas, delega en el módulo de negocio
@@ -250,7 +250,7 @@ def _render_log(msgs: list[str]) -> None:
 # Aplicación
 # ---------------------------------------------------------------------------
 def main() -> None:
-    st.set_page_config(page_title=settings.APP_NAME, page_icon="🏦", layout="centered")
+    st.set_page_config(page_title=settings.APP_NAME, page_icon="⚡", layout="centered")
     st.markdown(_CSS, unsafe_allow_html=True)
 
     _render_header()

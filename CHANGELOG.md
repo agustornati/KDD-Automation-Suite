@@ -7,6 +7,18 @@ El formato sigue, de manera simplificada,
 
 ## [No publicado]
 
+## [0.1.2] — Rebranding NAT Consulting
+
+Actualización de identidad de la plataforma. **Sin cambios funcionales.**
+
+### Cambiado
+- La plataforma pasa a identificarse como **NAT Automation Suite**,
+  Powered by **NAT Consulting**.
+- Actualización de todos los textos, cabeceras, documentación, comentarios y
+  configuración (`APP_NAME`, `APP_TAGLINE`, `LOG_FILE_NAME`).
+- Page icon de la interfaz Streamlit actualizado a `⚡`.
+- Versión bump: `0.1.1` → `0.1.2`.
+
 ## [0.1.1] — Sprint 1.5 (mejoras de UX)
 
 Mejoras de experiencia de usuario para uso diario por personal administrativo.
@@ -37,7 +49,7 @@ Mejoras de experiencia de usuario para uso diario por personal administrativo.
 
 ## [0.1.0] — Sprint 1
 
-Primera versión funcional de KDD Automation Suite.
+Primera versión funcional de NAT Automation Suite.
 
 ### Agregado
 - **Módulo de conciliación bancaria** (`modules/bank_reconciliation/`):

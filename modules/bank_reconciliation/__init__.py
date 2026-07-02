@@ -1,4 +1,4 @@
-"""Módulo de conciliación bancaria de KDD Automation Suite.
+"""Módulo de conciliación bancaria de NAT Automation Suite.
 
 API pública:
     - :func:`reconcile`: ejecuta la conciliación y devuelve un

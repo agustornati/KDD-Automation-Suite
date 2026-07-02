@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Construir la **primera versión completamente funcional** de KDD Automation Suite:
+Construir la **primera versión completamente funcional** de NAT Automation Suite:
 un producto usable que permita ejecutar la conciliación bancaria de punta a
 punta, reutilizando el motor existente y dejando una base de software
 profesional y escalable.

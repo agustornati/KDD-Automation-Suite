@@ -2,7 +2,7 @@
 
 Esta carpeta contiene el **script original** de conciliación bancaria del Banco
 Credicoop (`conciliacion_mvp.py`), tal como funcionaba antes de la migración a la
-arquitectura de KDD Automation Suite.
+arquitectura de NAT Automation Suite.
 
 ## Propósito
 

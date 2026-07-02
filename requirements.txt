@@ -1,4 +1,4 @@
-# KDD Automation Suite - dependencias del Sprint 1
+# NAT Automation Suite - dependencias del Sprint 1
 streamlit>=1.30
 pandas>=2.0
 openpyxl>=3.1

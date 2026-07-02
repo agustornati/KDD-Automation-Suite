@@ -16,7 +16,7 @@ def _app() -> AppTest:
 def test_app_carga_sin_errores():
     at = _app().run(timeout=TIMEOUT)
     assert not at.exception
-    assert at.title[0].value == "KDD Automation Suite"
+    assert at.title[0].value == "NAT Automation Suite"
 
 
 def test_conciliar_sin_datos_muestra_validacion():

@@ -1,1 +1,1 @@
-"""Configuración central de KDD Automation Suite."""
+"""Configuración central de NAT Automation Suite."""
