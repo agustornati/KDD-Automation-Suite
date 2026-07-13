@@ -16,7 +16,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from shared.exporters.base import ResultExporter
 
 from .models import ReconciliationResult
-from .utils import CATEGORIA_GASTO, categoria_banco
+from .utils import CATEGORIA_GASTO, categoria_banco, categoria_banco_detalle
 
 # --- Estilos (idénticos al legacy) -----------------------------------------
 VERDE = PatternFill("solid", fgColor="C6EFCE")
@@ -242,10 +242,12 @@ class ExcelExporter(ResultExporter):
                 continue
             if j in banco_a_conta:
                 continue
-            if categoria_banco(b["desc"]) != CATEGORIA_GASTO:
+            label = categoria_banco_detalle(b["desc"])
+            if label is None:
                 continue
-            resumen[b["desc"]][0] += 1
-            resumen[b["desc"]][1] += b["importe"]
+            key = label if label != CATEGORIA_GASTO else (b["desc"] or "(sin descripcion)")
+            resumen[key][0] += 1
+            resumen[key][1] += b["importe"]
         cols3 = ["Concepto (descripcion)", "Cant. movimientos", "Importe total"]
         ws3.append(cols3)
         _style_header(ws3, len(cols3))
@@ -378,42 +380,56 @@ class ExcelExporter(ResultExporter):
             w.cell(w.max_row, 4).number_format = MONEY
             _autofit(w)
 
-        def hoja_banco(titulo, items, con_categoria=False):
+        def hoja_banco(titulo, items):
             cols = ["Fecha", "Combte", "Descripcion", "Importe"]
-            if con_categoria:
-                cols.append("Categoria")
             w = wb.create_sheet(titulo)
             w.append(cols)
             _style_header(w, len(cols))
             for b in items:
-                row = [b["fecha"], b["combte"], b["desc"], b["importe"]]
-                if con_categoria:
-                    row.append(categoria_banco(b["desc"]))
-                w.append(row)
+                w.append([b["fecha"], b["combte"], b["desc"], b["importe"]])
                 w.cell(w.max_row, 1).number_format = "DD/MM/YYYY"
                 w.cell(w.max_row, 4).number_format = MONEY
                 for cc in range(1, len(cols) + 1):
                     w.cell(w.max_row, cc).border = THIN
-            w.append(["", "", "TOTAL", sum(b["importe"] for b in items)]
-                     + ([""] if con_categoria else []))
+            w.append(["", "", "TOTAL", sum(b["importe"] for b in items)])
             for cc in range(1, len(cols) + 1):
                 w.cell(w.max_row, cc).font = Font(bold=True)
                 w.cell(w.max_row, cc).fill = AMAR
             w.cell(w.max_row, 4).number_format = MONEY
-            if con_categoria:
-                sub: dict = defaultdict(float)
-                for b in items:
-                    sub[categoria_banco(b["desc"])] += b["importe"]
-                w.append(["", "", "", "", ""])
-                for cat, imp in sorted(sub.items(), key=lambda x: -x[1]):
-                    w.append(["", "Subtotal:", cat, imp, ""])
-                    w.cell(w.max_row, 4).number_format = MONEY
-                    w.cell(w.max_row, 3).font = Font(italic=True)
+            _autofit(w)
+
+        def hoja_gastos_agrupados(titulo, items):
+            """Agrupa débitos pendientes por nombre canónico de gasto."""
+            resumen_g: dict[str, list] = {}
+            for b in items:
+                label = categoria_banco_detalle(b["desc"])
+                if label is None:
+                    continue
+                key = label if label != CATEGORIA_GASTO else (b["desc"] or "(sin descripcion)")
+                acc = resumen_g.setdefault(key, [0, 0.0])
+                acc[0] += 1
+                acc[1] += b["importe"]
+            cols = ["Concepto", "Cant. movimientos", "Importe total"]
+            w = wb.create_sheet(titulo)
+            w.append(cols)
+            _style_header(w, len(cols))
+            total = 0.0
+            for label, (cant, imp) in sorted(resumen_g.items(), key=lambda x: -x[1][1]):
+                w.append([label, cant, imp])
+                total += imp
+                w.cell(w.max_row, 3).number_format = MONEY
+                for cc in range(1, len(cols) + 1):
+                    w.cell(w.max_row, cc).border = THIN
+            w.append(["TOTAL", sum(v[0] for v in resumen_g.values()), total])
+            for cc in range(1, len(cols) + 1):
+                w.cell(w.max_row, cc).font = Font(bold=True)
+                w.cell(w.max_row, cc).fill = AMAR
+            w.cell(w.max_row, 3).number_format = MONEY
             _autofit(w)
 
         hoja_conta("Depositos en transito", dep)
         hoja_conta("Cheques no debitados", cheq)
         hoja_banco("Creditos banco no contab", cred)
-        hoja_banco("Gastos-debitos a registrar", deb, con_categoria=True)
+        hoja_gastos_agrupados("Gastos-debitos a registrar", deb)
 
         wb.save(path)

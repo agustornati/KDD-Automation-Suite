@@ -34,23 +34,40 @@ CATEGORIA_OPERACION = "Operacion"
 # Las keywords se verifican en mayúsculas (case-insensitive).
 CAT_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("SIRCREB",),                    "Recaudacion SIRCREB CM - Condicion S"),
+    # Ley 25.413 — variantes con "LEY 25" completo:
     (("LEY 25", "DEBITO"),            "Impuesto Ley 25.413 Alic Gral s/Debitos"),
     (("LEY 25", "CREDITO"),           "Impuesto Ley 25.413 Ali Gral s/Creditos"),
     (("LEY 25", "ALIC"),              "Impuesto Ley 25.413 Alic Gral s/Debitos"),
     (("LEY 25", "ALI "),              "Impuesto Ley 25.413 Ali Gral s/Creditos"),
+    # Ley 25.413 — OCR pierde "25" o "25 413" (ej. "Ley 413 Ali s/Creditos"):
+    (("413", "CRED"),                 "Impuesto Ley 25.413 Ali Gral s/Creditos"),
+    (("413", "DEB"),                  "Impuesto Ley 25.413 Alic Gral s/Debitos"),
+    (("ALIC GRAL",),                  "Impuesto Ley 25.413 Alic Gral s/Debitos"),
+    # IVA — variantes con texto completo:
     (("DEBITO FISCAL",),              "I.V.A. - Debito Fiscal 21%"),
     (("I.V .A",),                     "I.V.A. - Debito Fiscal 21%"),
     (("I.V.A",),                      "I.V.A. - Debito Fiscal 21%"),
+    # IVA — OCR pierde "FISCAL" y lee "21%" como "218" (ej. "Debito 218"):
+    (("DEBITO", "218"),               "I.V.A. - Debito Fiscal 21%"),
+    # Percepcion IVA RG 2408:
     (("IVA RG",),                     "Percepcion IVA RG 2408 s/Comis-Gastos"),
     (("PERCEP", "IVA"),               "Percepcion IVA RG 2408 s/Comis-Gastos"),
+    (("2408",),                       "Percepcion IVA RG 2408 s/Comis-Gastos"),
+    # Ingresos Brutos CABA:
     (("PERCEP", "BRUTOS"),            "Percep. Ingr. Brutos CABA - Condicion P"),
     (("BRUTOS", "CABA"),              "Percep. Ingr. Brutos CABA - Condicion P"),
     (("INGR BRUTOS",),                "Percep. Ingr. Brutos CABA - Condicion P"),
+    # Recaudacion I.B. Tucuman:
     (("TUCUMAN",),                    "Recaudacion I.B Tucuman - Condicion J"),
     (("I B TUCUMAN",),                "Recaudacion I.B Tucuman - Condicion J"),
     (("RECAUDACION", "I.B"),          "Recaudacion I.B"),
+    # Comisiones E-CHEQ con filial:
     (("ECHQ", "CON FILIAL"),          "CHEQUE-Com Acred Camara con Filial Bco"),
+    (("ACRED", "CAMARA"),             "CHEQUE-Com Acred Camara con Filial Bco"),
+    # Comisiones E-CHEQ sin filial / por Clearing:
     (("ECHQ", "SIN FILIAL"),          "ECHQ-Comis acred Camara sin Filial Bco"),
+    (("CLEARING",),                   "ECHQ-Comis acred Camara sin Filial Bco"),
+    # Otros cargos bancarios:
     (("COMISION POR TRANSFERENCIA",), "Comision por Transferencia"),
     (("COMISION CHEQUE",),            "Comision E-CHEQ pagado por Clearing"),
     (("MANTENIMIENTO",),              "Com. mantenimiento cuenta"),
@@ -60,6 +77,7 @@ CAT_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("PAGO DE CHEQUE",),             "Pago de Cheque de Camara"),
     (("RECHAZADO",),                  "Comision Cheque Rechazado"),
     (("COMISION", "RECHAZ"),          "Comision Cheque Rechazado"),
+    (("SELLOS",),                     "Impuesto de Sellos CABA"),
 )
 
 
