@@ -21,6 +21,7 @@ from modules.bank_reconciliation import (
     ValidationError,
     reconcile,
 )
+from modules.bank_reconciliation.engine import is_scanned_pdf
 from shared.exporters import ZipExporter
 from shared.formatting import format_ars, human_size
 from shared.logging_config import get_logger
@@ -89,7 +90,7 @@ def _missing_fields(periodo: str, bank_file, sap_file, saldo) -> list[str]:
     return faltantes
 
 
-def _process(bank_file, sap_file, saldo: float, periodo: str):
+def _process(bank_file, sap_file, saldo: float, periodo: str, saldo_banco: float | None = None):
     """Ejecuta la conciliación mostrando el progreso por etapas.
 
     Orquesta el módulo de negocio y los exportadores. Devuelve el resultado de
@@ -101,8 +102,11 @@ def _process(bank_file, sap_file, saldo: float, periodo: str):
         bank_path = _save_upload(bank_file, paths.UPLOADS_DIR / bank_file.name)
         sap_path = _save_upload(sap_file, paths.UPLOADS_DIR / sap_file.name)
 
-        st.write("📄 Leyendo extracto, procesando contabilidad y ejecutando conciliación...")
-        result = reconcile(bank_path, sap_path, saldo, periodo)
+        if is_scanned_pdf(bank_path):
+            st.write("🔎 PDF escaneado detectado — aplicando OCR (puede tardar 5–10 min)...")
+        else:
+            st.write("📄 Leyendo extracto y procesando contabilidad...")
+        result = reconcile(bank_path, sap_path, saldo, periodo, saldo_banco)
 
         st.write("📦 Generando resultados (Excel + ZIP)...")
         out_dir = paths.OUTPUTS_DIR / result.period.mmyyyy
@@ -192,7 +196,13 @@ def _render_new_reconciliation():
         "Saldo contable", key="saldo", value=None, step=0.01, format="%.2f",
         help="Saldo contable de cierre del libro banco (obligatorio).",
     )
-    return periodo, bank_file, sap_file, saldo
+    saldo_banco = st.number_input(
+        "Saldo bancario al cierre (opcional)", key="saldo_banco", value=None,
+        step=0.01, format="%.2f",
+        help="Saldo del extracto bancario al último día del período. "
+             "Si no se completa, se intenta leer del PDF automáticamente.",
+    )
+    return periodo, bank_file, sap_file, saldo, saldo_banco
 
 
 def _render_results(result: ReconciliationResult, elapsed: float) -> None:
@@ -254,7 +264,7 @@ def main() -> None:
     st.markdown(_CSS, unsafe_allow_html=True)
 
     _render_header()
-    periodo, bank_file, sap_file, saldo = _render_new_reconciliation()
+    periodo, bank_file, sap_file, saldo, saldo_banco = _render_new_reconciliation()
 
     if st.button("Conciliar", type="primary", use_container_width=True):
         faltantes = _missing_fields(periodo, bank_file, sap_file, saldo)
@@ -263,7 +273,8 @@ def main() -> None:
         else:
             try:
                 result, zip_path, excels, elapsed = _process(
-                    bank_file, sap_file, float(saldo), periodo
+                    bank_file, sap_file, float(saldo), periodo,
+                    float(saldo_banco) if saldo_banco is not None else None,
                 )
                 st.session_state["result"] = result
                 st.session_state["zip_path"] = str(zip_path)

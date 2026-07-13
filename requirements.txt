@@ -3,6 +3,8 @@ streamlit>=1.30
 pandas>=2.0
 openpyxl>=3.1
 pdfplumber>=0.11
+pymupdf>=1.24        # rendering de PDFs escaneados (fallback OCR)
+easyocr>=1.7         # OCR para extractos bancarios en formato imagen
 
 # Testing
 pytest>=8.0

@@ -34,12 +34,458 @@ from .utils import (
 # ===========================================================================
 # 1. Parseo del EXTRACTO (PDF) por coordenadas
 # ===========================================================================
-def parse_extracto(path: Path, stop_marker: str) -> list[BancoRecord]:
+
+# --- OCR fallback (PDFs escaneados / imagen) --------------------------------
+
+_OCR_ZOOM = 3          # factor de zoom para renderizado antes del OCR
+_DEB_X1   = 1281       # borde derecho columna DEBITO  (a 3x = 854*1.5)
+_CRED_X1  = 1590       # borde derecho columna CREDITO (a 3x = 1060*1.5)
+_DATE_X0  = 300        # borde derecho columna FECHA   (a 3x = 200*1.5)
+_COMBTE_X0 = 195       # inicio columna COMBTE         (a 3x = 130*1.5)
+_COMBTE_X1 = 345       # fin columna COMBTE            (a 3x = 230*1.5)
+_AMT_X0   = 975        # inicio zona de importes       (a 3x = 650*1.5)
+_SALDO_X0_WIDE = 1560  # zona SALDO ampliada           (a 3x = 1040*1.5)
+_SALDO_RECOVERY_MIN = 5_000.0  # discrepancia mínima ARS para activar recuperación
+
+# Fecha en zona de importes: "DD/MM/YYYY" o "DD/MM/YY" leída como crédito/débito
+_DATE_TOKEN_RE = re.compile(r"^\d{2}/\d{2}/\d{2,4}$")
+
+# Patrones en descripciones que indican líneas de encabezado/pie de página a ignorar
+_SKIP_LINE_RE = re.compile(
+    r"VIENE\s*DE\s*(PAG|PAGINA)|PAGINA\s*ANTERIOR|TOTALES?\s*DEL?\s*DIA",
+    re.IGNORECASE,
+)
+
+
+def _recover_from_saldo(
+    movs_with_y: list[tuple[int, dict]],
+    saldo_checks: list[tuple[int, float]],
+    fallback_date: Optional[date],
+) -> list[dict]:
+    """Genera movimientos sintéticos para débitos/créditos que OCR no leyó.
+
+    Cuando la columna SALDO indica un cambio que los movimientos OCR no explican
+    (diferencia > _SALDO_RECOVERY_MIN), inserta un movimiento "SALDO-RECOVER"
+    con el importe de la diferencia.  Estos quedan visibles en el informe de
+    conciliación como partidas pendientes a revisar manualmente.
+    """
+    if len(saldo_checks) < 2:
+        return []
+
+    recovered = []
+    for idx in range(len(saldo_checks) - 1):
+        y_prev, s_prev = saldo_checks[idx]
+        y_curr, s_curr = saldo_checks[idx + 1]
+
+        between = [(y, m) for y, m in movs_with_y if y_prev < y <= y_curr]
+        ocr_cred = sum(m["importe"] for _, m in between if m["tipo"] == "C")
+        ocr_deb  = sum(m["importe"] for _, m in between if m["tipo"] == "D")
+
+        actual_delta = s_curr - s_prev
+        ocr_delta    = ocr_cred - ocr_deb
+        discrepancy  = actual_delta - ocr_delta  # negativo → débito faltante
+
+        if abs(discrepancy) < _SALDO_RECOVERY_MIN:
+            continue
+
+        fecha = next((m["fecha"] for _, m in between if m.get("fecha")), fallback_date)
+        n_between = len(between)
+        if discrepancy < 0:
+            # Filtrar DEBs pequeños en segmentos sin movimientos OCR:
+            # posibles checkpoints de saldo ruidosos (encabezados/resúmenes de página).
+            if n_between == 0 and abs(discrepancy) < 15_000_000:
+                continue
+            recovered.append({
+                "fecha": fecha, "combte": "",
+                "desc": f"SALDO-RECOVER DEB {abs(discrepancy):,.2f}",
+                "tipo": "D", "importe": abs(discrepancy),
+            })
+        else:
+            recovered.append({
+                "fecha": fecha, "combte": "",
+                "desc": f"SALDO-RECOVER CRED {discrepancy:,.2f}",
+                "tipo": "C", "importe": discrepancy,
+            })
+
+    return recovered
+
+
+def _filter_partial_saldo(checks: list[tuple[int, float]]) -> list[tuple[int, float]]:
+    """Elimina checkpoints de saldo que parecen lecturas parciales del OCR.
+
+    Síndrome: "98.640.089,06" se lee como "640.089" → checkpoint anómalo rodeado
+    por valores 100x mayores.  Criterio: valor < 1% del anterior Y el siguiente
+    checkpoint es > 10x el actual.
+    """
+    if len(checks) < 3:
+        return checks
+    filtered = [checks[0]]
+    for i in range(1, len(checks)):
+        curr_y, curr_s = checks[i]
+        prev_s = filtered[-1][1]
+        is_partial = (
+            curr_s < prev_s * 0.01
+            and i + 1 < len(checks)
+            and checks[i + 1][1] > curr_s * 10
+        )
+        if not is_partial:
+            filtered.append((curr_y, curr_s))
+    return filtered
+
+
+def _get_ocr_reader():
+    """Inicializa EasyOCR la primera vez y lo cachea en el módulo."""
+    if not hasattr(_get_ocr_reader, "_reader"):
+        import easyocr  # importación lazy: solo si el PDF es escaneado
+        _get_ocr_reader._reader = easyocr.Reader(
+            ["es", "en"], gpu=False, verbose=False
+        )
+    return _get_ocr_reader._reader
+
+
+def _normalize_ocr_amount(fragments: list[str]) -> Optional[float]:
+    """Reconstruye un importe en formato argentino desde fragmentos OCR.
+
+    Maneja los patrones de OCR sobre Courier vectorizado o escaneado:
+      ``'832 .376, 00'``  → 832.376,00  (espacios alrededor de separadores)
+      ``'991.300_00'``    → 991.300,00  (guión bajo como separador decimal)
+      ``'26.200 6'``      → 26.200,00  (dígito suelto final = artefacto OCR)
+      ``'504'``           → 504,00      (decimal truncado por OCR)
+    """
+    if not fragments:
+        return None
+
+    # Token suelto de 1 dígito al final = artefacto OCR (ej: "26.200 6" → 26200)
+    if len(fragments) >= 2:
+        last = fragments[-1].strip()
+        if len(last) == 1 and last.isdigit():
+            fragments = fragments[:-1]
+
+    # Si hay múltiples fragmentos que individualmente son importes válidos, significa
+    # que dos filas se fusionaron en el mismo bucket y cada una tiene su importe.
+    # Tomamos el último (más a la derecha = columna real del importe).
+    if len(fragments) >= 2:
+        validos = [f.strip() for f in fragments if AMOUNT_RE.match(f.strip())]
+        if len(validos) >= 2:
+            return parse_importe(validos[-1])
+        if len(validos) == 1:
+            return parse_importe(validos[0])
+
+    # Unir con espacio, normalizar separadores garbled, luego eliminar espacios
+    raw = " ".join(fragments)
+    raw = raw.replace("_", ".").replace("|", ",")   # _ = miles garbled, | = coma garbled
+    clean = re.sub(r"\s+", "", raw)
+    clean = re.sub(r"[^\d.,]", "", clean)           # solo dígitos, puntos, comas
+
+    if not clean:
+        return None
+
+    # Intento 1: ya cumple formato argentino exacto N.NNN,NN
+    if AMOUNT_RE.match(clean):
+        return parse_importe(clean)
+
+    # Intento 2: última coma como separador decimal (maneja "1.234,5" o comas múltiples)
+    if "," in clean:
+        ridx = clean.rfind(",")
+        int_part = clean[:ridx]
+        dec_part = clean[ridx + 1:]
+        if 1 <= len(dec_part) <= 2 and dec_part.isdigit() and re.match(r"^[\d.]+$", int_part):
+            int_str = int_part.replace(".", "")
+            if int_str.isdigit() and len(int_str) <= 10:
+                return float(int_str + "." + dec_part.ljust(2, "0"))
+
+    # Intento 3: N.NNN...NNN + 2 dígitos finales pegados (decimal truncado al unir)
+    m = re.match(r"^(\d{1,3}(?:\.\d{3})+)(\d{2})$", clean)
+    if m:
+        return float(m.group(1).replace(".", "") + "." + m.group(2))
+
+    # Sin separadores: decimal (",00") truncado por OCR
+    digits = re.sub(r"[^\d]", "", clean)
+    if digits:
+        if len(digits) > 12:  # > 1 billón ARS → concatenación de dos filas
+            return None
+        # Fecha DDMMYYYY leída como importe (ej: "30/09/2025" → 30092025)
+        if len(digits) >= 8:
+            try:
+                from datetime import date as _d
+                _d(int(digits[4:8]), int(digits[2:4]), int(digits[:2]))
+                return None
+            except (ValueError, TypeError):
+                pass
+        # > 50M ARS sin separadores (fallback numérico) → casi siempre basura OCR
+        # Los importes reales grandes llegan con "." y "," correctos y se parsean antes
+        if int(digits) > 50_000_000:
+            return None
+        return float(digits + ".00")
+
+    return None
+
+
+def _reconstruct_ocr_date(toks: list) -> Optional[date]:
+    """Reconstruye una fecha desde tokens OCR de la columna FECHA."""
+    for (_, _, _, text) in toks:
+        if DATE_RE.match(text):
+            try:
+                dd, mm, yy = text.split("/")
+                return date(2000 + int(yy), int(mm), int(dd))
+            except (ValueError, TypeError):
+                pass
+    # Intento: tokens parciales pegados (ej. '05/08' + '25')
+    joined = "".join(t[3] for t in toks).replace(" ", "")
+    m = re.search(r"(\d{2})/(\d{2})/(\d{2})", joined)
+    if m:
+        try:
+            return date(2000 + int(m.group(3)), int(m.group(2)), int(m.group(1)))
+        except (ValueError, TypeError):
+            pass
+    return None
+
+
+def _ocr_cache_path(pdf_path: Path) -> Path:
+    return pdf_path.with_suffix(pdf_path.suffix + ".ocr_cache.json")
+
+
+def _load_ocr_cache(
+    pdf_path: Path, saldo_final: Optional[float] = None
+) -> Optional[tuple[list[BancoRecord], Optional[float]]]:
+    import json
+    cache_path = _ocr_cache_path(pdf_path)
+    if not cache_path.exists():
+        return None
+    try:
+        with open(cache_path, encoding="utf-8") as f:
+            data = json.load(f)
+        if data.get("mtime") != pdf_path.stat().st_mtime:
+            return None
+        # Invalidar si saldo_final cambió (afecta los movimientos de recuperación)
+        cached_sf = data.get("saldo_final")
+        if saldo_final is not None and cached_sf != saldo_final:
+            return None
+        movs: list[BancoRecord] = []
+        for m in data["movs"]:
+            rec = dict(m)
+            rec["fecha"] = date.fromisoformat(m["fecha"]) if m["fecha"] else None
+            movs.append(rec)
+        return movs, data.get("saldo_ocr")
+    except Exception:
+        return None
+
+
+def _save_ocr_cache(
+    pdf_path: Path,
+    movs: list[BancoRecord],
+    saldo_ocr: Optional[float],
+    saldo_final: Optional[float] = None,
+) -> None:
+    import json
+    cache_path = _ocr_cache_path(pdf_path)
+    try:
+        serializable = []
+        for m in movs:
+            rec = dict(m)
+            rec["fecha"] = m["fecha"].isoformat() if m["fecha"] else None
+            serializable.append(rec)
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "mtime": pdf_path.stat().st_mtime,
+                "saldo_ocr": saldo_ocr,
+                "saldo_final": saldo_final,
+                "movs": serializable,
+            }, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def parse_extracto_ocr(
+    path: Path, stop_marker: str, saldo_final: Optional[float] = None
+) -> tuple[list[BancoRecord], Optional[float]]:
+    """Parser OCR para extractos bancarios en formato imagen (PDF escaneado).
+
+    Renderiza cada página con PyMuPDF (2x), aplica EasyOCR y reconstruye
+    movimientos usando las mismas reglas de columnas que el parser pdfplumber.
+    También captura el saldo de cierre de la línea del marcador de corte,
+    evitando una segunda pasada OCR.
+
+    Usa un archivo de cache ``<pdf>.ocr_cache.json`` para evitar repetir el OCR
+    si el PDF no cambió desde la última ejecución.
+
+    Returns:
+        Tupla ``(movimientos, saldo_cierre)``. ``saldo_cierre`` es ``None``
+        si no se encontró la línea del marcador.
+    """
+    cached = _load_ocr_cache(path, saldo_final)
+    if cached is not None:
+        return cached
+
+    try:
+        import fitz        # PyMuPDF
+        import numpy as np
+    except ImportError:
+        return [], None
+    try:
+        reader = _get_ocr_reader()
+    except Exception:
+        return [], None
+
+    movs: list[BancoRecord] = []
+    saldo_ocr: Optional[float] = None
+    stop_clean = stop_marker.replace(" ", "").upper()
+
+    with fitz.open(str(path)) as doc:
+        cur_date: Optional[date] = None
+        stop = False
+
+        # Acumuladores globales para recuperación cross-page
+        all_movs_with_y: list[tuple[int, dict]] = []
+        all_saldo_checks: list[tuple[int, float]] = []
+        _PAGE_OFFSET = 30_000  # separación de espacio y entre páginas (3x: ~2400px/página)
+
+        for page_idx, page in enumerate(doc):
+            if stop:
+                break
+            pix = page.get_pixmap(
+                matrix=fitz.Matrix(_OCR_ZOOM, _OCR_ZOOM),
+                colorspace=fitz.csGRAY,
+            )
+            img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+                pix.height, pix.width
+            )
+            results = reader.readtext(img, detail=1, paragraph=False)
+
+            # Agrupar tokens por línea (buckets de 10 px para no fusionar filas contiguas)
+            line_map: dict[int, list] = {}
+            for (bbox, text, _conf) in results:
+                x0 = min(p[0] for p in bbox)
+                x1 = max(p[0] for p in bbox)
+                y0 = min(p[1] for p in bbox)
+                key = round(y0 / 10) * 10
+                line_map.setdefault(key, []).append((x0, x1, y0, text.strip()))
+
+            # Variante del marcador sin "/" para tolerar que OCR lo lea mal ("|", "1", etc.)
+            stop_clean_alt = re.sub(r"[^A-Z0-9]", "", stop_marker.upper())
+
+            for key in sorted(line_map):
+                toks = sorted(line_map[key], key=lambda t: t[0])
+                linea_clean = "".join(t[3] for t in toks).replace(" ", "").upper()
+                linea_alphanum = re.sub(r"[^A-Z0-9]", "", linea_clean)
+                linea_desc = " ".join(t[3] for t in toks if t[0] < _AMT_X0)
+
+                if stop_clean in linea_clean or stop_clean_alt in linea_alphanum:
+                    # Capturar saldo de cierre del marcador de corte
+                    all_frags = [t[3] for t in toks]
+                    amt = _normalize_ocr_amount(all_frags)
+                    if amt is not None:
+                        saldo_ocr = amt
+                    else:
+                        # Intentar token a token (el saldo puede estar separado)
+                        for t in reversed(toks):
+                            a = _normalize_ocr_amount([t[3]])
+                            if a is not None:
+                                saldo_ocr = a
+                                break
+                    stop = True
+                    break
+
+                # Saltar líneas de encabezado/pie de página (no son movimientos)
+                if _SKIP_LINE_RE.search(linea_desc):
+                    continue
+
+                # Fecha
+                date_toks = [t for t in toks if t[0] < _DATE_X0]
+                d = _reconstruct_ocr_date(date_toks)
+                if d:
+                    cur_date = d
+
+                # Saldo corriente (columna derecha): capturar para recuperación
+                saldo_frags = [t[3] for t in toks
+                               if t[0] > _SALDO_X0_WIDE
+                               and not _DATE_TOKEN_RE.match(t[3].strip())
+                               and any(c.isdigit() for c in t[3])]
+                saldo_amt = _normalize_ocr_amount(saldo_frags)
+                # Umbral de 5,000 para filtrar fragmentos de OCR misleídos (ej: 783.27)
+                if saldo_amt and saldo_amt >= 5_000:
+                    global_key = page_idx * _PAGE_OFFSET + key
+                    all_saldo_checks.append((global_key, saldo_amt))
+
+                # Importes: fragmentos en zona DEBITO / CREDITO
+                # Excluir tokens con formato de fecha (ej: "30/09/2025" en col. saldo)
+                deb_frags = [t[3] for t in toks
+                             if _AMT_X0 < t[0] <= _DEB_X1
+                             and not _DATE_TOKEN_RE.match(t[3].strip())]
+                cred_frags = [t[3] for t in toks
+                              if _DEB_X1 < t[0] <= _CRED_X1
+                              and not _DATE_TOKEN_RE.match(t[3].strip())]
+
+                deb = _normalize_ocr_amount(deb_frags)
+                cred = _normalize_ocr_amount(cred_frags)
+
+                if deb is None and cred is None:
+                    continue
+                if cur_date is None:
+                    continue
+
+                # Comprobante (token numérico al inicio de COMBTE)
+                combte_toks = [t[3] for t in toks if _COMBTE_X0 <= t[0] < _COMBTE_X1]
+                combte = ""
+                if combte_toks and re.fullmatch(r"\d{3,}", combte_toks[0]):
+                    combte = combte_toks[0]
+
+                # Descripción
+                desc_toks = [t[3] for t in toks if _COMBTE_X1 <= t[0] < _AMT_X0]
+                desc = " ".join(desc_toks)
+
+                gkey = page_idx * _PAGE_OFFSET + key
+                if deb is not None:
+                    rec: BancoRecord = {
+                        "fecha": cur_date, "combte": combte, "desc": desc,
+                        "tipo": "D", "importe": deb,
+                    }
+                    movs.append(rec)
+                    all_movs_with_y.append((gkey, rec))
+                if cred is not None:
+                    rec = {
+                        "fecha": cur_date, "combte": combte, "desc": desc,
+                        "tipo": "C", "importe": cred,
+                    }
+                    movs.append(rec)
+                    all_movs_with_y.append((gkey, rec))
+
+        # Anclar con saldo de cierre: evita que los últimos segmentos generen DEBs
+        # fantasma que el statement recupera al 98.6M real al final.
+        anchor = saldo_final if saldo_final is not None else saldo_ocr
+        if anchor is not None and all_saldo_checks:
+            last_key = max(k for k, _ in all_saldo_checks)
+            all_saldo_checks.append((last_key + 1, anchor))
+
+        # Recuperación cross-page: un único pase con todos los checkpoints globales
+        filtered_checks = _filter_partial_saldo(all_saldo_checks)
+        recovered = _recover_from_saldo(all_movs_with_y, filtered_checks, cur_date)
+        movs.extend(recovered)
+
+    _save_ocr_cache(path, movs, saldo_ocr, saldo_final)
+    return movs, saldo_ocr
+
+
+def is_scanned_pdf(path: Path) -> bool:
+    """Devuelve True si el PDF no tiene texto seleccionable (es imagen/escaneado)."""
+    with pdfplumber.open(str(path)) as pdf:
+        for page in pdf.pages[:3]:
+            if page.extract_words(use_text_flow=False):
+                return False
+    return True
+
+
+def parse_extracto(
+    path: Path, stop_marker: str, saldo_final: Optional[float] = None
+) -> tuple[list[BancoRecord], bool]:
     """Extrae los movimientos del extracto bancario en PDF.
 
-    Recorre el PDF línea por línea agrupando palabras por su coordenada
-    vertical y clasifica los importes en débito/crédito según su posición
-    horizontal. Se detiene al encontrar la línea de corte (``stop_marker``).
+    Intenta primero con pdfplumber (PDFs digitales con texto seleccionable).
+    Si no extrae ningún movimiento, cae automáticamente al parser OCR
+    (``parse_extracto_ocr``) para PDFs escaneados/imagen.
+
+    Returns:
+        Tupla ``(movimientos, ocr_usado)``.
     """
     movs: list[BancoRecord] = []
     with pdfplumber.open(str(path)) as pdf:
@@ -92,14 +538,18 @@ def parse_extracto(path: Path, stop_marker: str) -> list[BancoRecord]:
                 if cred is not None:
                     movs.append({"fecha": cur_date, "combte": combte,
                                  "desc": desc, "tipo": "C", "importe": cred})
-    return movs
+
+    # Fallback OCR para PDFs escaneados (sin texto seleccionable).
+    # parse_extracto_ocr captura también el saldo de cierre en el mismo pase.
+    if not movs:
+        movs, saldo_ocr = parse_extracto_ocr(path, stop_marker, saldo_final=saldo_final)
+        return movs, True, saldo_ocr
+
+    return movs, False, None
 
 
 def saldo_final_pdf(path: Path, stop_marker: str) -> Optional[float]:
-    """Devuelve el saldo bancario de cierre.
-
-    Es el último importe de la línea ``SALDO AL dd/mm`` del extracto.
-    """
+    """Devuelve el saldo bancario de cierre leyendo el PDF con pdfplumber."""
     saldo: Optional[float] = None
     with pdfplumber.open(str(path)) as pdf:
         for page in pdf.pages:
@@ -176,6 +626,13 @@ def marcar_anulados(
     return pares
 
 
+# Tolerancia asimétrica de fecha: créditos ±5 días, débitos ±10 días.
+# Los débitos tienen ventana mayor porque los pagos de importación suelen
+# registrarse en SAP varios días después de que el banco los debita.
+_DATE_TOL_C = 5
+_DATE_TOL_D = 10
+
+
 # ===========================================================================
 # 4. Matching uno-a-uno (importe + lado invertido, fecha como desempate)
 # ===========================================================================
@@ -184,8 +641,9 @@ def conciliar(
 ) -> tuple[list[bool], list[bool], list[tuple[int, int]]]:
     """Concilia contabilidad y banco uno-a-uno.
 
-    Empareja por (lado bancario, importe) eligiendo, entre los candidatos
-    libres, el de fecha más cercana.
+    Empareja por (lado bancario, importe) filtrando candidatos dentro de la
+    ventana de fechas y eligiendo el de fecha más cercana entre los válidos.
+    Usa tolerancia asimétrica: 5 días para créditos, 10 días para débitos.
 
     Returns:
         ``(conta_match, banco_match, pares)`` con los flags de conciliación y
@@ -207,8 +665,15 @@ def conciliar(
         libres = [j for j in cands if not banco_match[j]]
         if not libres:
             continue
-        libres.sort(key=lambda j: abs((banco[j]["fecha"] - c["fecha"]).days)
-                    if banco[j]["fecha"] and c["fecha"] else 999)
+        dtol = _DATE_TOL_C if c["tipo_bco"] == "C" else _DATE_TOL_D
+        libres = [
+            j for j in libres
+            if banco[j]["fecha"] and c["fecha"]
+            and abs((banco[j]["fecha"] - c["fecha"]).days) <= dtol
+        ]
+        if not libres:
+            continue
+        libres.sort(key=lambda j: abs((banco[j]["fecha"] - c["fecha"]).days))
         j = libres[0]
         banco_match[j] = True
         conta_match[i] = True

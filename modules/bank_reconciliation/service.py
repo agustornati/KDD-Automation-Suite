@@ -156,17 +156,42 @@ def reconcile(
 
     period = PeriodInfo.from_string(periodo)
 
-    banco = engine.parse_extracto(bank_pdf, period.stop_marker)
+    banco, ocr_usado, saldo_ocr = engine.parse_extracto(bank_pdf, period.stop_marker, saldo_final=saldo_banco)
     conta = engine.parse_contabilidad(sap_xlsx)
-    logger.info("Parseo OK | banco=%d mov | sap=%d mov", len(banco), len(conta))
+    logger.info("Parseo OK | banco=%d mov | sap=%d mov | ocr=%s",
+                len(banco), len(conta), ocr_usado)
+    if ocr_usado:
+        warnings.append(
+            "El extracto bancario es un PDF escaneado: se usó reconocimiento óptico "
+            "(OCR) para leer los movimientos. Revisá el detalle del extracto para "
+            "verificar que los importes y fechas se leyeron correctamente."
+        )
 
+    saldo_banco_manual = saldo_banco  # None si no lo ingresó el usuario
     if saldo_banco is None:
-        saldo_banco = engine.saldo_final_pdf(bank_pdf, period.stop_marker)
+        # Para PDFs escaneados el saldo ya viene del mismo pase OCR
+        if saldo_ocr is not None:
+            saldo_banco = saldo_ocr
+            logger.info("Saldo de cierre obtenido por OCR: %.2f", saldo_banco)
+        else:
+            saldo_banco = engine.saldo_final_pdf(bank_pdf, period.stop_marker)
         if saldo_banco is None:
             msg = (f"No se pudo leer el saldo bancario del PDF "
-                   f"(marcador '{period.stop_marker}').")
+                   f"(marcador '{period.stop_marker}'). Ingresalo manualmente.")
             warnings.append(msg)
             logger.warning(msg)
+    else:
+        # El usuario ingresó el saldo manualmente: cruzar contra el del PDF
+        saldo_pdf = saldo_ocr if ocr_usado else engine.saldo_final_pdf(bank_pdf, period.stop_marker)
+        if saldo_pdf is not None and abs(saldo_pdf - saldo_banco_manual) > 1.0:
+            msg = (
+                f"El saldo bancario ingresado ({saldo_banco_manual:,.2f}) "
+                f"difiere del saldo leído en el PDF ({saldo_pdf:,.2f}). "
+                f"Verificá que el valor sea el saldo al cierre del período."
+            )
+            warnings.append(msg)
+            logger.warning("Diferencia saldo manual vs PDF: %.2f vs %.2f",
+                           saldo_banco_manual, saldo_pdf)
 
     conta_anul = engine.marcar_anulados(
         conta, lambda r: "IN" if r["debe"] > 0 else "OUT"

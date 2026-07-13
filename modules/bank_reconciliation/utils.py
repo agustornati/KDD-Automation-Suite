@@ -28,10 +28,62 @@ CARGOS: tuple[str, ...] = (
 CATEGORIA_GASTO = "Gasto/Impuesto bancario"
 CATEGORIA_OPERACION = "Operacion"
 
+# Reglas detalladas para clasificación canónica de gastos bancarios.
+# Cada entrada es (keywords_a_buscar_en_el_texto, nombre_canónico).
+# Se evalúan en orden; la primera que coincide gana.
+# Las keywords se verifican en mayúsculas (case-insensitive).
+CAT_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("SIRCREB",),                    "Recaudacion SIRCREB CM - Condicion S"),
+    (("LEY 25", "DEBITO"),            "Impuesto Ley 25.413 Alic Gral s/Debitos"),
+    (("LEY 25", "CREDITO"),           "Impuesto Ley 25.413 Ali Gral s/Creditos"),
+    (("LEY 25", "ALIC"),              "Impuesto Ley 25.413 Alic Gral s/Debitos"),
+    (("LEY 25", "ALI "),              "Impuesto Ley 25.413 Ali Gral s/Creditos"),
+    (("DEBITO FISCAL",),              "I.V.A. - Debito Fiscal 21%"),
+    (("I.V .A",),                     "I.V.A. - Debito Fiscal 21%"),
+    (("I.V.A",),                      "I.V.A. - Debito Fiscal 21%"),
+    (("IVA RG",),                     "Percepcion IVA RG 2408 s/Comis-Gastos"),
+    (("PERCEP", "IVA"),               "Percepcion IVA RG 2408 s/Comis-Gastos"),
+    (("PERCEP", "BRUTOS"),            "Percep. Ingr. Brutos CABA - Condicion P"),
+    (("BRUTOS", "CABA"),              "Percep. Ingr. Brutos CABA - Condicion P"),
+    (("INGR BRUTOS",),                "Percep. Ingr. Brutos CABA - Condicion P"),
+    (("TUCUMAN",),                    "Recaudacion I.B Tucuman - Condicion J"),
+    (("I B TUCUMAN",),                "Recaudacion I.B Tucuman - Condicion J"),
+    (("RECAUDACION", "I.B"),          "Recaudacion I.B"),
+    (("ECHQ", "CON FILIAL"),          "CHEQUE-Com Acred Camara con Filial Bco"),
+    (("ECHQ", "SIN FILIAL"),          "ECHQ-Comis acred Camara sin Filial Bco"),
+    (("COMISION POR TRANSFERENCIA",), "Comision por Transferencia"),
+    (("COMISION CHEQUE",),            "Comision E-CHEQ pagado por Clearing"),
+    (("MANTENIMIENTO",),              "Com. mantenimiento cuenta"),
+    (("EXTERIOR", "GIRO"),            "Com. Exterior - Giros y Transferencias"),
+    (("EXTERIOR", "IMPORT"),          "Com. Exterior-Operacion de Importacion"),
+    (("EXTERIOR", "COMISION"),        "Com. Exterior - Comisiones"),
+    (("PAGO DE CHEQUE",),             "Pago de Cheque de Camara"),
+    (("RECHAZADO",),                  "Comision Cheque Rechazado"),
+    (("COMISION", "RECHAZ"),          "Comision Cheque Rechazado"),
+)
+
 
 def parse_importe(texto: str) -> float:
     """Convierte un importe con formato argentino (``1.234,56``) a float."""
     return float(texto.replace(".", "").replace(",", "."))
+
+
+def categoria_banco_detalle(desc: str | None) -> str | None:
+    """Devuelve el nombre canónico del gasto bancario, o ``None`` si es operación.
+
+    Evalúa ``CAT_RULES`` en orden y retorna la primera categoría cuyas keywords
+    aparecen todas en el texto (case-insensitive).  Si ninguna regla coincide
+    pero la descripción contiene algún término genérico de ``CARGOS``, devuelve
+    ``CATEGORIA_GASTO`` como etiqueta de reserva.
+    """
+    texto = (desc or "").upper()
+    for keywords, categoria in CAT_RULES:
+        if all(kw.upper() in texto for kw in keywords):
+            return categoria
+    # Fallback: términos genéricos (ej. "GUV", "Custodia de Titulos")
+    if any(cargo.lower() in (desc or "").lower() for cargo in CARGOS):
+        return CATEGORIA_GASTO
+    return None
 
 
 def categoria_banco(desc: str | None) -> str:
@@ -41,10 +93,7 @@ def categoria_banco(desc: str | None) -> str:
         ``CATEGORIA_GASTO`` si la descripción contiene algún concepto de
         cargo bancario; ``CATEGORIA_OPERACION`` en caso contrario.
     """
-    texto = desc or ""
-    if any(cargo.lower() in texto.lower() for cargo in CARGOS):
-        return CATEGORIA_GASTO
-    return CATEGORIA_OPERACION
+    return CATEGORIA_GASTO if categoria_banco_detalle(desc) else CATEGORIA_OPERACION
 
 
 def _lado_banco(tipo: str) -> str:
@@ -104,19 +153,24 @@ def build_extracto_df(
 
 
 def build_gastos_df(banco: list[BancoRecord], banco_match: list[bool]) -> pd.DataFrame:
-    """DataFrame de gastos/impuestos bancarios pendientes de registrar."""
+    """DataFrame de gastos/impuestos bancarios pendientes de registrar.
+
+    Agrupa por categoría canónica (``CAT_RULES``) cuando hay coincidencia;
+    usa la descripción raw del banco como fallback para gastos no clasificados.
+    """
     resumen: dict[str, list] = {}
     for j, b in enumerate(banco):
         if banco_match[j]:
             continue
-        if categoria_banco(b["desc"]) != CATEGORIA_GASTO:
+        label = categoria_banco_detalle(b["desc"])
+        if label is None:
             continue
-        acc = resumen.setdefault(b["desc"], [0, 0.0])
+        acc = resumen.setdefault(label, [0, 0.0])
         acc[0] += 1
         acc[1] += b["importe"]
     filas = [
-        {"Concepto": desc, "Cant. movimientos": cant, "Importe total": imp}
-        for desc, (cant, imp) in sorted(resumen.items(), key=lambda x: -x[1][1])
+        {"Concepto": label, "Cant. movimientos": cant, "Importe total": imp}
+        for label, (cant, imp) in sorted(resumen.items(), key=lambda x: -x[1][1])
     ]
     return pd.DataFrame(filas)
 
