@@ -197,11 +197,15 @@ def _render_new_reconciliation():
         help="Saldo contable de cierre del libro banco (obligatorio).",
     )
     saldo_banco = st.number_input(
-        "Saldo bancario al cierre (opcional)", key="saldo_banco", value=None,
+        "Saldo bancario al cierre", key="saldo_banco", value=None,
         step=0.01, format="%.2f",
         help="Saldo del extracto bancario al último día del período. "
-             "Si no se completa, se intenta leer del PDF automáticamente.",
+             "Obligatorio para PDFs escaneados (ej. Credicoop): el OCR no puede "
+             "leer el saldo correctamente en ese formato.",
     )
+    if saldo_banco is None:
+        st.caption("⚠️ Para extractos Credicoop u otros PDFs escaneados, "
+                   "completar el saldo bancario es obligatorio.")
     return periodo, bank_file, sap_file, saldo, saldo_banco
 
 

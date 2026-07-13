@@ -257,6 +257,8 @@ def _load_ocr_cache(
             data = json.load(f)
         if data.get("mtime") != pdf_path.stat().st_mtime:
             return None
+        if data.get("zoom") != _OCR_ZOOM:
+            return None
         # Invalidar si saldo_final cambió (afecta los movimientos de recuperación)
         cached_sf = data.get("saldo_final")
         if saldo_final is not None and cached_sf != saldo_final:
@@ -288,6 +290,7 @@ def _save_ocr_cache(
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump({
                 "mtime": pdf_path.stat().st_mtime,
+                "zoom": _OCR_ZOOM,
                 "saldo_ocr": saldo_ocr,
                 "saldo_final": saldo_final,
                 "movs": serializable,
@@ -301,7 +304,7 @@ def parse_extracto_ocr(
 ) -> tuple[list[BancoRecord], Optional[float]]:
     """Parser OCR para extractos bancarios en formato imagen (PDF escaneado).
 
-    Renderiza cada página con PyMuPDF (2x), aplica EasyOCR y reconstruye
+    Renderiza cada página con PyMuPDF (3x), aplica EasyOCR y reconstruye
     movimientos usando las mismas reglas de columnas que el parser pdfplumber.
     También captura el saldo de cierre de la línea del marcador de corte,
     evitando una segunda pasada OCR.
