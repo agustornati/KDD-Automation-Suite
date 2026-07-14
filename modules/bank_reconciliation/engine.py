@@ -245,6 +245,16 @@ def _ocr_cache_path(pdf_path: Path) -> Path:
     return pdf_path.with_suffix(pdf_path.suffix + ".ocr_cache.json")
 
 
+def _pdf_hash(pdf_path: Path) -> str:
+    """SHA-256 del contenido del PDF. Independiente del timestamp del archivo."""
+    import hashlib
+    h = hashlib.sha256()
+    with open(pdf_path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _load_ocr_cache(
     pdf_path: Path, saldo_final: Optional[float] = None
 ) -> Optional[tuple[list[BancoRecord], Optional[float]]]:
@@ -255,7 +265,21 @@ def _load_ocr_cache(
     try:
         with open(cache_path, encoding="utf-8") as f:
             data = json.load(f)
-        if data.get("mtime") != pdf_path.stat().st_mtime:
+        # Clave de identidad: hash del contenido.
+        # Compatibilidad: caches viejos usan "mtime"; si coincide, migrar a hash.
+        pdf_hash = _pdf_hash(pdf_path)
+        if "hash" in data:
+            if data["hash"] != pdf_hash:
+                return None
+        elif "mtime" in data:
+            if data["mtime"] != pdf_path.stat().st_mtime:
+                return None
+            # Migrar: reescribir con hash para que futuras cargas no dependan del mtime
+            data["hash"] = pdf_hash
+            data.pop("mtime", None)
+            with open(cache_path, "w", encoding="utf-8") as fw:
+                json.dump(data, fw, ensure_ascii=False)
+        else:
             return None
         if data.get("zoom") != _OCR_ZOOM:
             return None
@@ -289,7 +313,7 @@ def _save_ocr_cache(
             serializable.append(rec)
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump({
-                "mtime": pdf_path.stat().st_mtime,
+                "hash": _pdf_hash(pdf_path),
                 "zoom": _OCR_ZOOM,
                 "saldo_ocr": saldo_ocr,
                 "saldo_final": saldo_final,
