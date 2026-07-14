@@ -514,6 +514,13 @@ def parse_extracto(
     Returns:
         Tupla ``(movimientos, ocr_usado)``.
     """
+    # Verificar cache OCR antes de abrir pdfplumber: evita iterar 20+ páginas
+    # bezier (costoso) cuando el resultado ya está guardado.
+    cached = _load_ocr_cache(path, saldo_final)
+    if cached is not None:
+        movs, saldo_ocr = cached
+        return movs, True, saldo_ocr
+
     movs: list[BancoRecord] = []
     with pdfplumber.open(str(path)) as pdf:
         cur_date: Optional[date] = None
