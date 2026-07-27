@@ -25,6 +25,7 @@ GRIS = PatternFill("solid", fgColor="F2F2F2")
 HDR = PatternFill("solid", fgColor="1A1F5E")
 HDRF = Font(bold=True, color="FFFFFF")
 AMAR = PatternFill("solid", fgColor="FFE600")
+NARA = PatternFill("solid", fgColor="F4B942")   # naranja — SALDO-RECOVER
 THIN = Border(*[Side(style="thin", color="D9D9D9")] * 4)
 MONEY = "#,##0.00"
 
@@ -381,17 +382,32 @@ class ExcelExporter(ResultExporter):
             _autofit(w)
 
         def hoja_banco(titulo, items):
-            cols = ["Fecha", "Combte", "Descripcion", "Importe"]
+            cols = ["Fecha", "Combte", "Descripcion", "Importe", "Nota"]
             w = wb.create_sheet(titulo)
             w.append(cols)
             _style_header(w, len(cols))
             for b in items:
-                w.append([b["fecha"], b["combte"], b["desc"], b["importe"]])
+                desc = b["desc"] or ""
+                is_recover = "SALDO-RECOVER" in desc
+                if is_recover:
+                    tipo = "CREDITO" if "CRED" in desc else "DEBITO"
+                    nota = ("VERIFICAR MANUALMENTE: transaccion no leida por OCR. "
+                            "Buscar en el extracto impreso el %s de ~$%s" % (
+                                tipo,
+                                "{:,.2f}".format(b["importe"])))
+                else:
+                    nota = ""
+                w.append([b["fecha"], b["combte"], desc, b["importe"], nota])
                 w.cell(w.max_row, 1).number_format = "DD/MM/YYYY"
                 w.cell(w.max_row, 4).number_format = MONEY
+                fill = NARA if is_recover else None
                 for cc in range(1, len(cols) + 1):
                     w.cell(w.max_row, cc).border = THIN
-            w.append(["", "", "TOTAL", sum(b["importe"] for b in items)])
+                    if fill:
+                        w.cell(w.max_row, cc).fill = fill
+                if nota:
+                    w.cell(w.max_row, 5).alignment = Alignment(wrap_text=False)
+            w.append(["", "", "TOTAL", sum(b["importe"] for b in items), ""])
             for cc in range(1, len(cols) + 1):
                 w.cell(w.max_row, cc).font = Font(bold=True)
                 w.cell(w.max_row, cc).fill = AMAR
@@ -435,5 +451,42 @@ class ExcelExporter(ResultExporter):
         hoja_banco("Creditos banco no contab", cred)
         hoja_banco("Operaciones banco no contab", deb_oper)
         hoja_gastos_agrupados("Gastos-debitos a registrar", deb_gastos)
+
+        # Hoja resumen de entradas SALDO-RECOVER para verificacion manual
+        todos_banco = list(banco)
+        recovers = sorted(
+            [b for b in todos_banco if "SALDO-RECOVER" in (b["desc"] or "")],
+            key=lambda b: -b["importe"],
+        )
+        if recovers:
+            wr = wb.create_sheet("SALDO-RECOVER (verificar)")
+            cols_r = ["Fecha", "Tipo", "Importe", "Nota para la contadora"]
+            wr.append(cols_r)
+            _style_header(wr, len(cols_r))
+            for b in recovers:
+                desc = b["desc"] or ""
+                tipo = "CREDITO banco" if "CRED" in desc else "DEBITO banco"
+                nota = ("Transaccion no leida por OCR. "
+                        "Verificar en el extracto impreso la fecha %s y "
+                        "ubicar el %s de ~$%s" % (
+                            b["fecha"].strftime("%d/%m") if b["fecha"] else "?",
+                            tipo,
+                            "{:,.2f}".format(b["importe"])))
+                wr.append([b["fecha"], tipo, b["importe"], nota])
+                wr.cell(wr.max_row, 1).number_format = "DD/MM/YYYY"
+                wr.cell(wr.max_row, 3).number_format = MONEY
+                for cc in range(1, len(cols_r) + 1):
+                    wr.cell(wr.max_row, cc).border = THIN
+                    wr.cell(wr.max_row, cc).fill = NARA
+            wr.append(["", "TOTAL", sum(b["importe"] for b in recovers), ""])
+            for cc in range(1, len(cols_r) + 1):
+                wr.cell(wr.max_row, cc).font = Font(bold=True)
+                wr.cell(wr.max_row, cc).fill = AMAR
+            wr.cell(wr.max_row, 3).number_format = MONEY
+            wr.column_dimensions["A"].width = 12
+            wr.column_dimensions["B"].width = 16
+            wr.column_dimensions["C"].width = 18
+            wr.column_dimensions["D"].width = 80
+            wr.cell(1, 4).alignment = Alignment(wrap_text=False)
 
         wb.save(path)
