@@ -16,12 +16,16 @@ from collections import defaultdict
 from datetime import date, datetime
 from itertools import combinations
 from pathlib import Path
+from statistics import median as _statistics_median
 from typing import Callable, Optional
 
 import openpyxl
 import pdfplumber
 
+from shared.logging_config import get_logger
 from .models import BancoRecord, ContaRecord
+
+logger = get_logger(__name__)
 from .utils import (
     AMOUNT_RE,
     CATEGORIA_OPERACION,
@@ -46,6 +50,9 @@ _COMBTE_X1 = 345       # fin columna COMBTE            (a 3x = 230*1.5)
 _AMT_X0   = 975        # inicio zona de importes       (a 3x = 650*1.5)
 _SALDO_X0_WIDE = 1560  # zona SALDO ampliada           (a 3x = 1040*1.5)
 _SALDO_RECOVERY_MIN = 5_000.0  # discrepancia mínima ARS para activar recuperación
+# SIRCREB: si un débito supera N veces la mediana del mes, es un misread del OCR
+# (ej: OCR lee el saldo corriente como importe de la retención → cifras de 9M, 5M)
+_SIRCREB_OUTLIER_FACTOR = 100
 
 # Fecha en zona de importes: "DD/MM/YYYY" o "DD/MM/YY" leída como crédito/débito
 _DATE_TOKEN_RE = re.compile(r"^\d{2}/\d{2}/\d{2,4}$")
@@ -55,6 +62,33 @@ _SKIP_LINE_RE = re.compile(
     r"VIENE\s*DE\s*(PAG|PAGINA)|PAGINA\s*ANTERIOR|TOTALES?\s*DEL?\s*DIA",
     re.IGNORECASE,
 )
+
+
+def _filter_sircreb_outliers(movs: list[dict]) -> list[dict]:
+    """Descarta movimientos SIRCREB cuyo importe es un misread del OCR.
+
+    El OCR a veces confunde la columna de saldo con la columna de importe y
+    genera un débito SIRCREB con el valor del saldo corriente (ej: 9.000.000).
+    Si un registro supera _SIRCREB_OUTLIER_FACTOR veces la mediana del mes, se
+    elimina y se registra un warning; el algoritmo SALDO-RECOVER lo compensa.
+    """
+    importes = [m["importe"] for m in movs
+                if "SIRCREB" in (m.get("desc") or "").upper() and m["importe"] > 0]
+    if len(importes) < 3:
+        return movs
+    med = _statistics_median(importes)
+    umbral = max(med * _SIRCREB_OUTLIER_FACTOR, 1_000_000.0)
+    out: list[dict] = []
+    for m in movs:
+        if ("SIRCREB" in (m.get("desc") or "").upper() and m["importe"] > umbral):
+            logger.warning(
+                "SIRCREB outlier descartado (OCR misread) | fecha=%s importe=%.2f "
+                "mediana=%.2f umbral=%.2f",
+                m.get("fecha"), m["importe"], med, umbral,
+            )
+        else:
+            out.append(m)
+    return out
 
 
 def _recover_from_saldo(
@@ -489,6 +523,7 @@ def parse_extracto_ocr(
         recovered = _recover_from_saldo(all_movs_with_y, filtered_checks, cur_date)
         movs.extend(recovered)
 
+    movs = _filter_sircreb_outliers(movs)
     _save_ocr_cache(path, movs, saldo_ocr, saldo_final)
     return movs, saldo_ocr
 
@@ -519,6 +554,7 @@ def parse_extracto(
     cached = _load_ocr_cache(path, saldo_final)
     if cached is not None:
         movs, saldo_ocr = cached
+        movs = _filter_sircreb_outliers(movs)
         return movs, True, saldo_ocr
 
     movs: list[BancoRecord] = []
