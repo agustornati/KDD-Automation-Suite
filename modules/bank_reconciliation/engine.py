@@ -518,12 +518,17 @@ def parse_extracto_ocr(
             last_key = max(k for k, _ in all_saldo_checks)
             all_saldo_checks.append((last_key + 1, anchor))
 
+        # Filtrar outliers SIRCREB ANTES de SALDO-RECOVER para que la recuperación
+        # no compense débitos fantasma generados por el OCR (ej: 9M, 5.13M en oct-25)
+        movs = _filter_sircreb_outliers(movs)
+        kept_ids = {id(m) for m in movs}
+        all_movs_with_y = [(y, m) for y, m in all_movs_with_y if id(m) in kept_ids]
+
         # Recuperación cross-page: un único pase con todos los checkpoints globales
         filtered_checks = _filter_partial_saldo(all_saldo_checks)
         recovered = _recover_from_saldo(all_movs_with_y, filtered_checks, cur_date)
         movs.extend(recovered)
 
-    movs = _filter_sircreb_outliers(movs)
     _save_ocr_cache(path, movs, saldo_ocr, saldo_final)
     return movs, saldo_ocr
 
@@ -554,7 +559,6 @@ def parse_extracto(
     cached = _load_ocr_cache(path, saldo_final)
     if cached is not None:
         movs, saldo_ocr = cached
-        movs = _filter_sircreb_outliers(movs)
         return movs, True, saldo_ocr
 
     movs: list[BancoRecord] = []
