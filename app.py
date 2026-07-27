@@ -104,6 +104,9 @@ def _process(bank_file, sap_file, saldo: float, periodo: str, saldo_banco: float
 
         if is_scanned_pdf(bank_path):
             st.write("🔎 PDF escaneado detectado — aplicando OCR (puede tardar 5–10 min)...")
+            if saldo_banco is None:
+                raise ValidationError(["Para PDFs escaneados (ej. Credicoop) el "
+                                        "saldo bancario al cierre es obligatorio."])
         else:
             st.write("📄 Leyendo extracto y procesando contabilidad...")
         result = reconcile(bank_path, sap_path, saldo, periodo, saldo_banco)
@@ -204,8 +207,8 @@ def _render_new_reconciliation():
              "leer el saldo correctamente en ese formato.",
     )
     if saldo_banco is None:
-        st.caption("⚠️ Para extractos Credicoop u otros PDFs escaneados, "
-                   "completar el saldo bancario es obligatorio.")
+        st.caption("⚠️ Obligatorio para extractos Credicoop y otros PDFs escaneados. "
+                   "Sin este valor el OCR no puede calcular correctamente los movimientos faltantes.")
     return periodo, bank_file, sap_file, saldo, saldo_banco
 
 
