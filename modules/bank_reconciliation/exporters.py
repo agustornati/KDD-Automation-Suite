@@ -427,9 +427,13 @@ class ExcelExporter(ResultExporter):
             w.cell(w.max_row, 3).number_format = MONEY
             _autofit(w)
 
+        deb_oper   = [b for b in deb if categoria_banco_detalle(b["desc"]) is None]
+        deb_gastos = [b for b in deb if categoria_banco_detalle(b["desc"]) is not None]
+
         hoja_conta("Depositos en transito", dep)
         hoja_conta("Cheques no debitados", cheq)
         hoja_banco("Creditos banco no contab", cred)
-        hoja_gastos_agrupados("Gastos-debitos a registrar", deb)
+        hoja_banco("Operaciones banco no contab", deb_oper)
+        hoja_gastos_agrupados("Gastos-debitos a registrar", deb_gastos)
 
         wb.save(path)
