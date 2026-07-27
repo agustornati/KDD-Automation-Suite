@@ -72,10 +72,8 @@ CAT_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("COMISION CHEQUE",),            "Comision E-CHEQ pagado por Clearing"),
     (("MANTENIMIENTO",),              "Com. mantenimiento cuenta"),
     (("EXTERIOR", "GIRO"),            "Com. Exterior - Giros y Transferencias"),
-    (("EXTERIOR", "IMPORT"),          "Com. Exterior-Operacion de Importacion"),
     (("EXTERIOR", "COMISION"),        "Com. Exterior - Comisiones"),
     (("PAGO DE CHEQUE",),             "Pago de Cheque de Camara"),
-    (("RECHAZADO",),                  "Comision Cheque Rechazado"),
     (("COMISION", "RECHAZ"),          "Comision Cheque Rechazado"),
     (("SELLOS",),                     "Impuesto de Sellos CABA"),
 )
